@@ -153,7 +153,7 @@ class GitSessionManagerHW(HardwareComponent):
                 return []
             
             submodules = []
-            for line in stdout.split('\n'):
+            for line in stdout.splitlines():
                 if line.strip():
                     parts = line.split()
                     if len(parts) >= 2:
