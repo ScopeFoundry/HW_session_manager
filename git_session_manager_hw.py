@@ -34,6 +34,13 @@ class GitSessionManagerHW(HardwareComponent):
             description="Prefix for experimental session branch names"
         )
         
+        self.manage_submodules = self.settings.New(
+            "manage_submodules",
+            dtype=bool,
+            initial=False,
+            description="Whether to create session branches in submodules and track their changes"
+        )
+        
         # Session state tracking
         self.current_branch = self.settings.New(
             "current_branch",
@@ -134,6 +141,31 @@ class GitSessionManagerHW(HardwareComponent):
                 self.log.error(f"Return code: {e.returncode}")
             raise
             
+    def get_submodules(self):
+        """Get list of submodules in the repository"""
+        try:
+            stdout, _, _ = self._run_git_command(
+                ['git', 'config', '--file', '.gitmodules', '--get-regexp', 'path'],
+                check=False
+            )
+            
+            if not stdout:
+                return []
+            
+            submodules = []
+            for line in stdout.split('\n'):
+                if line.strip():
+                    parts = line.split()
+                    if len(parts) >= 2:
+                        submodule_path = parts[1]
+                        submodules.append(submodule_path)
+            
+            return submodules
+            
+        except Exception as e:
+            self.log.error(f"Failed to get submodules: {e}")
+            return []
+    
     def refresh_git_status(self):
         """Refresh git status information"""
         try:
@@ -220,6 +252,10 @@ class GitSessionManagerHW(HardwareComponent):
             # Reset session_ended flag for new session
             self.session_ended.update_value(False)
             
+            # Handle submodules if enabled
+            if self.manage_submodules.val:
+                self.start_session_in_submodules(branch_name, parent_branch)
+            
             # Commit initial state
             self.commit_initial_session_state(branch_name)
             
@@ -235,6 +271,60 @@ class GitSessionManagerHW(HardwareComponent):
             self.log.error(f"Failed to start experimental session: {e}")
             raise
             
+    def start_session_in_submodules(self, branch_name, parent_branch):
+        """Create session branches in all submodules, recording their parent branches in the commit message"""
+        try:
+            submodules = self.get_submodules()
+            
+            if not submodules:
+                self.log.info("No submodules found")
+                return
+            
+            submodule_parent_branches = {}
+            
+            for submodule_path in submodules:
+                try:
+                    submodule_full_path = Path(self.repo_path.val) / submodule_path
+                    
+                    self.log.info(f"Creating session branch in submodule: {submodule_path}")
+                    
+                    # Get current branch in submodule
+                    result = subprocess.run(
+                        ['git', 'rev-parse', '--abbrev-ref', 'HEAD'],
+                        cwd=submodule_full_path,
+                        capture_output=True,
+                        text=True,
+                        check=True
+                    )
+                    submodule_current_branch = result.stdout.strip()
+                    submodule_parent_branches[submodule_path] = submodule_current_branch
+                    
+                    # Create and switch to new branch in submodule
+                    subprocess.run(
+                        ['git', 'checkout', '-b', branch_name],
+                        cwd=submodule_full_path,
+                        capture_output=True,
+                        text=True,
+                        check=True
+                    )
+                    
+                    self.log.info(f"Created branch {branch_name} in submodule {submodule_path} (was on {submodule_current_branch})")
+                    
+                except subprocess.CalledProcessError as e:
+                    self.log.warning(f"Failed to create session branch in submodule {submodule_path}: {e.stderr}")
+                except Exception as e:
+                    self.log.warning(f"Failed to process submodule {submodule_path}: {e}")
+            
+            # Store submodule parent branches in a file
+            if submodule_parent_branches:
+                parent_branches_file = Path(self.repo_path.val) / '.git' / 'session_submodule_parents.txt'
+                with open(parent_branches_file, 'w') as f:
+                    for path, branch in submodule_parent_branches.items():
+                        f.write(f"{path}:{branch}\n")
+                    
+        except Exception as e:
+            self.log.error(f"Failed to start session in submodules: {e}")
+    
     def commit_initial_session_state(self, branch_name):
         """Commit the initial state when starting a session"""
         try:
@@ -364,6 +454,81 @@ Generated with ScopeFoundry Git Session Manager"""
             self.log.error(f"Failed to end experimental session: {e}")
             raise
             
+    def commit_submodule_changes(self, final=False):
+        """Commit changes in all submodules"""
+        try:
+            submodules = self.get_submodules()
+            
+            if not submodules:
+                return
+            
+            timestamp = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+            session_name = self.session_name.val or "experimental session"
+            
+            for submodule_path in submodules:
+                try:
+                    submodule_full_path = Path(self.repo_path.val) / submodule_path
+                    
+                    # Check for changes in submodule
+                    result = subprocess.run(
+                        ['git', 'status', '--porcelain'],
+                        cwd=submodule_full_path,
+                        capture_output=True,
+                        text=True,
+                        check=True
+                    )
+                    
+                    if not result.stdout.strip():
+                        continue
+                    
+                    self.log.info(f"Committing changes in submodule: {submodule_path}")
+                    
+                    # Add all changes in submodule
+                    subprocess.run(
+                        ['git', 'add', '-A'],
+                        cwd=submodule_full_path,
+                        capture_output=True,
+                        text=True,
+                        check=True
+                    )
+                    
+                    # Create commit message for submodule
+                    if final:
+                        commit_message = f"""Final commit for experimental session: {session_name}
+
+Session completed at: {timestamp}
+
+Generated with ScopeFoundry Git Session Manager"""
+                    else:
+                        commit_message = f"""Progress commit for experimental session: {session_name}
+
+Updated at: {timestamp}
+
+Generated with ScopeFoundry Git Session Manager"""
+                    
+                    # Commit in submodule
+                    subprocess.run(
+                        ['git', 'commit', '-F', '-'],
+                        cwd=submodule_full_path,
+                        capture_output=True,
+                        text=True,
+                        input=commit_message,
+                        check=True
+                    )
+                    
+                    self.log.info(f"Committed changes in submodule {submodule_path}")
+                    
+                except subprocess.CalledProcessError as e:
+                    if "nothing to commit" in e.stderr:
+                        self.log.info(f"No changes to commit in submodule {submodule_path}")
+                    else:
+                        self.log.warning(f"Failed to commit in submodule {submodule_path}: {e.stderr}")
+                except Exception as e:
+                    self.log.warning(f"Failed to process submodule {submodule_path}: {e}")
+                    
+        except Exception as e:
+            self.log.error(f"Failed to commit submodule changes: {e}")
+    
     def return_to_parent_branch(self):
         """Return to the parent branch that the session was created from"""
         try:
@@ -375,6 +540,10 @@ Generated with ScopeFoundry Git Session Manager"""
             # Check if there are uncommitted changes
             if self.has_uncommitted_changes.val:
                 raise ValueError(f"There are uncommitted changes. Please commit or stash them before switching branches.")
+            
+            # Return submodules to their original branches if enabled
+            if self.manage_submodules.val:
+                self.return_submodules_to_parent_branch()
             
             # Switch to parent branch
             self._run_git_command(['git', 'checkout', parent_branch])
@@ -388,6 +557,70 @@ Generated with ScopeFoundry Git Session Manager"""
             self.log.error(f"Failed to return to parent branch: {e}")
             raise
             
+    def return_submodules_to_parent_branch(self):
+        """Return all submodules to their parent branches using stored branch information"""
+        try:
+            submodules = self.get_submodules()
+            
+            if not submodules:
+                return
+            
+            # Read stored submodule parent branches
+            parent_branches_file = Path(self.repo_path.val) / '.git' / 'session_submodule_parents.txt'
+            submodule_parent_branches = {}
+            
+            if parent_branches_file.exists():
+                with open(parent_branches_file, 'r') as f:
+                    for line in f:
+                        line = line.strip()
+                        if ':' in line:
+                            path, branch = line.split(':', 1)
+                            submodule_parent_branches[path] = branch
+            
+            for submodule_path in submodules:
+                try:
+                    submodule_full_path = Path(self.repo_path.val) / submodule_path
+                    
+                    # Check for uncommitted changes in submodule
+                    result = subprocess.run(
+                        ['git', 'status', '--porcelain'],
+                        cwd=submodule_full_path,
+                        capture_output=True,
+                        text=True,
+                        check=True
+                    )
+                    
+                    if result.stdout.strip():
+                        self.log.warning(f"Submodule {submodule_path} has uncommitted changes. Skipping checkout.")
+                        continue
+                    
+                    # Get the stored parent branch for this submodule
+                    parent_branch = submodule_parent_branches.get(submodule_path)
+                    
+                    if not parent_branch:
+                        self.log.warning(f"No parent branch recorded for submodule {submodule_path}. Skipping checkout.")
+                        continue
+                    
+                    self.log.info(f"Returning submodule {submodule_path} to parent branch {parent_branch}")
+                    
+                    subprocess.run(
+                        ['git', 'checkout', parent_branch],
+                        cwd=submodule_full_path,
+                        capture_output=True,
+                        text=True,
+                        check=True
+                    )
+                    
+                    self.log.info(f"Returned submodule {submodule_path} to branch {parent_branch}")
+                    
+                except subprocess.CalledProcessError as e:
+                    self.log.warning(f"Failed to return submodule {submodule_path} to parent branch: {e.stderr}")
+                except Exception as e:
+                    self.log.warning(f"Failed to process submodule {submodule_path}: {e}")
+                    
+        except Exception as e:
+            self.log.error(f"Failed to return submodules to parent branch: {e}")
+            
     def commit_session_changes(self, final=False):
         """Commit changes during the experimental session"""
         try:
@@ -397,6 +630,10 @@ Generated with ScopeFoundry Git Session Manager"""
             if not self.has_uncommitted_changes.val:
                 self.log.info("No changes to commit")
                 return
+            
+            # Commit changes in submodules first if enabled
+            if self.manage_submodules.val:
+                self.commit_submodule_changes(final)
                 
             # Add all changes
             self._run_git_command(['git', 'add', '-A'])
