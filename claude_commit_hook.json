@@ -1,0 +1,15 @@
+{
+  "hooks": {
+    "Stop": [
+      {
+        "hooks": [
+          
+          {
+            "type": "command",
+            "command": "python3 -m ScopeFoundryHW.session_manager.llm_git_commit_hook"
+          }
+        ]
+      }
+    ]
+  }
+}
