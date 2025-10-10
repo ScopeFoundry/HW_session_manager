@@ -6,44 +6,65 @@ from pathlib import Path
 import hashlib
 from datetime import datetime
 import os
-
+import traceback
 
 def get_last_interaction(transcript_path):
     """Extract the last user prompt and LLM's response from the transcript.
     Currently assumes Claude Code transcripts
     """
+    print(f"get_last_interaction {transcript_path}")
     try:
         with open(transcript_path, 'r') as f:
             lines = f.readlines()
+        print(lines)
         
         # Parse JSONL (one JSON object per line)
         events = [json.loads(line) for line in lines if line.strip()]
         
+        print(events)
+        for e in events:
+            print(json.dumps(e, indent=4))
         # Find the last user message
-        user_messages = [e for e in events if e.get('role') == 'user']
+        user_messages =[] #= [e for e in events if e['message'].get('role') == 'user']
+        for i,e in enumerate(events):
+            print(i, e)
+            try:
+                print(e['message'])
+                if e['message'].get('role') == 'user':
+                    user_messages.append(e)
+            except Exception as err:
+                print(err)
+        print("user_messages", user_messages)
         if not user_messages:
             return None, None
         
         last_user = user_messages[-1]
-        last_user_ts = last_user.get('ts', 0)
-        
+        last_user_ts = datetime.fromisoformat(last_user.get('timestamp', 0))
+
         # Find Claude's responses after the last user message
-        assistant_messages = [
-            e for e in events 
-            if e.get('role') == 'assistant' and e.get('ts', 0) > last_user_ts
-        ]
+        assistant_messages =[] #= [e for e in events if e['message'].get('role') == 'user']
+        for i,e in enumerate(events):
+            print(i, e)
+            try:
+                print(e['message'])
+                e_ts = datetime.fromisoformat(e.get('timestamp',0))
+                if e['message'].get('role') == 'assistant' and e_ts>last_user_ts:
+                    assistant_messages.append(e)
+            except Exception as err:
+                print(err)
+        print("assistant_messages", assistant_messages)
         
         # Extract text content
-        prompt = ""
-        if last_user.get('content'):
-            for content in last_user['content']:
-                if content.get('type') == 'text':
-                    prompt = content.get('text', '')
-                    break
+        prompt = last_user['message']['content']#""
+#        if last_user.get('content'):
+#            for content in last_user['content']:
+#                if content.get('type') == 'text':
+#                    prompt = content.get('text', '')
+#                    break
         
         response = ""
         if assistant_messages:
-            first_assistant = assistant_messages[0]
+            first_assistant = assistant_messages[0]['message']
             if first_assistant.get('content'):
                 for content in first_assistant['content']:
                     if content.get('type') == 'text':
@@ -162,18 +183,17 @@ def write_to_conversation_file(prompt, response, filename):
 
     # Format the entry
     timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-    entry = f"""
-    ---
+    entry = f"""---
 
-    ## {timestamp}
+## {timestamp}
 
-    **User:**
-    {prompt}
+**User:**
+{prompt}
 
-    **LLM:**
-    {response}
+**LLM:**
+{response}
 
-    """
+"""
 
     # Append to the file
     with open(conversation_file, 'a') as f:
@@ -192,13 +212,6 @@ def main():
         if not transcript_path:
             print("Error: No transcript path provided", file=sys.stderr)
             sys.exit(1)
-        
-        # Get the last interaction
-        prompt, response = get_last_interaction(transcript_path)
-        
-        if prompt is None:
-            print("Error: Could not extract interaction from transcript", file=sys.stderr)
-            sys.exit(1)
 
         # Get current branch
         result = subprocess.run(
@@ -207,23 +220,42 @@ def main():
             text=True,
             check=True
         )
+
+        # Get session information (using git-branch as session)        
         branch = result.stdout.strip()
         if not branch:
             branch = "detached-HEAD"
-        branch.replace('/', '-').replace(' ', '_') # remove problematic characters
-
-        # write prompt to to file
+        branch.replace('/', '-').replace(' ', '_') # remove problematic characters        
 
         session_dir = Path(f"llm-sessions/{branch}/")
         session_dir.mkdir(parents=True, exist_ok=True)
-        write_to_conversation_file(prompt, response, filename= session_dir / f"conversation-{branch}.md")
-        # Create the commit
-        create_commit(prompt, response)
+
+
+        # copy transcript to llm-sessions/<session> dir
+        import shutil
+        transcript_path = Path(transcript_path)
+        destination = session_dir / "claude_transcript" / transcript_path.name
+        destination.parent.mkdir(parents=True, exist_ok=True)
+        shutil.copy2(transcript_path, destination)
+
+        try:
+            # Get the last interaction
+            prompt, response = get_last_interaction(transcript_path)
+            
+            if prompt is None:
+                print("Error: Could not extract interaction from transcript", file=sys.stderr)
+
+            # write prompt to to file
+            write_to_conversation_file(prompt, response, filename= session_dir / f"conversation-{branch}.md")
+        finally:
+            # Create the commit
+            create_commit(prompt, response)
         
     except json.JSONDecodeError as e:
         print(f"Error: Invalid JSON input: {e}", file=sys.stderr)
         sys.exit(1)
     except Exception as e:
+        print(f"Error: {e} \n {traceback.print_exc()}")
         print(f"Unexpected error: {e}", file=sys.stderr)
         sys.exit(1)
 
