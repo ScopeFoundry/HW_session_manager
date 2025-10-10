@@ -15,6 +15,7 @@ class GitSessionManagerHW(HardwareComponent):
     """
     
     name = "git_session_manager"
+    SESSION_PREFIX = "session"
     
     def setup(self):
         """Set up the git session manager settings and operations"""
@@ -25,13 +26,6 @@ class GitSessionManagerHW(HardwareComponent):
             dtype=str, 
             initial="", 
             description="Name for the current experimental session"
-        )
-        
-        self.session_prefix = self.settings.New(
-            "session_prefix",
-            dtype=str,
-            initial="exp",
-            description="Prefix for experimental session branch names"
         )
         
         self.manage_submodules = self.settings.New(
@@ -191,7 +185,7 @@ class GitSessionManagerHW(HardwareComponent):
             
             # Update session status
             current_branch = self.current_branch.val
-            is_session_branch = current_branch.startswith(f"{self.session_prefix.val}-")
+            is_session_branch = current_branch.startswith(f"{self.SESSION_PREFIX}-")
             
             # Session is active only if on session branch AND not explicitly ended
             session_active = is_session_branch and not self.session_ended.val
@@ -213,17 +207,21 @@ class GitSessionManagerHW(HardwareComponent):
         """Generate a branch name for the experimental session"""
         if session_name is None:
             session_name = self.session_name.val
-            
-        if not session_name:
-            # Generate default name with timestamp
-            timestamp = datetime.datetime.now().strftime("%y%m%d-%H%M%S")
-            session_name = f"session-{timestamp}"
-            
-        # Clean session name for git branch
-        clean_name = session_name.replace(" ", "-").replace("_", "-")
-        clean_name = "".join(c for c in clean_name if c.isalnum() or c in "-.")
         
-        branch_name = f"{self.session_prefix.val}-{clean_name}"
+        # Always include timestamp
+        timestamp = datetime.datetime.now().strftime("%y%m%d-%H%M%S")
+        
+        if session_name:
+            # Clean session name for git branch
+            clean_name = session_name.replace(" ", "-").replace("_", "-")
+            clean_name = "".join(c for c in clean_name if c.isalnum() or c in "-.")
+            # Update the LQ with cleaned name
+            self.session_name.update_value(clean_name)
+            branch_name = f"{self.SESSION_PREFIX}-{timestamp}-{clean_name}"
+        else:
+            # No session name provided, just timestamp
+            branch_name = f"{self.SESSION_PREFIX}-{timestamp}"
+        
         return branch_name
         
     def start_experimental_session(self):
@@ -257,7 +255,7 @@ class GitSessionManagerHW(HardwareComponent):
             
             # Update session_name if branch name was modified
             if branch_name != original_branch_name:
-                session_name_from_branch = branch_name.replace(f"{self.session_prefix.val}-", "", 1)
+                session_name_from_branch = branch_name.replace(f"{self.SESSION_PREFIX}-", "", 1)
                 self.session_name.update_value(session_name_from_branch)
                 
             # Create and switch to new branch
