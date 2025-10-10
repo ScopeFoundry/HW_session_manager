@@ -351,12 +351,10 @@ class GitSessionManagerHW(HardwareComponent):
             if not stdout.strip():
                 # No changes to commit, create an empty commit to mark session start
                 timestamp = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-                session_name = self.session_name.val or "unnamed session"
                 
-                commit_message = f"""Start experimental session: {session_name}
+                commit_message = f"""Start experimental session: {branch_name}
 
 Session Details:
-- Session name: {session_name}
 - Branch: {branch_name}
 - Started: {timestamp}
 - ScopeFoundry Git Session Manager
@@ -364,7 +362,7 @@ Session Details:
 Generated with ScopeFoundry Git Session Manager"""
 
                 self._run_git_command(['git', 'commit', '--allow-empty', '-F', '-'], input_text=commit_message)
-                self.log.info(f"Created empty commit to mark session start for {session_name}")
+                self.log.info(f"Created empty commit to mark session start for {branch_name}")
             else:
                 # There are changes, add and commit them
                 self._run_git_command(['git', 'add', '-A'])
@@ -382,12 +380,10 @@ Generated with ScopeFoundry Git Session Manager"""
                     return
                 
                 timestamp = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-                session_name = self.session_name.val or "unnamed session"
                 
-                commit_message = f"""Initial state for experimental session: {session_name}
+                commit_message = f"""Initial state for experimental session: {branch_name}
 
 Session Details:
-- Session name: {session_name}
 - Branch: {branch_name}
 - Started: {timestamp}
 - ScopeFoundry Git Session Manager
@@ -395,7 +391,7 @@ Session Details:
 Generated with ScopeFoundry Git Session Manager"""
 
                 self._run_git_command(['git', 'commit', '-F', '-'], input_text=commit_message)
-                self.log.info(f"Committed initial session state for {session_name}")
+                self.log.info(f"Committed initial session state for {branch_name}")
             
         except subprocess.CalledProcessError as e:
             self.log.error(f"Git commit failed with return code {e.returncode}")
@@ -650,20 +646,18 @@ Generated with ScopeFoundry Git Session Manager"""
             
             # Create commit message
             timestamp = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-            session_name = self.session_name.val or "experimental session"
+            branch_name = self.session_branch.val
             
             if final:
-                commit_message = f"""Final commit for experimental session: {session_name}
+                commit_message = f"""Final commit for experimental session: {branch_name}
 
 Session completed at: {timestamp}
-Branch: {self.session_branch.val}
 
 Generated with ScopeFoundry Git Session Manager"""
             else:
-                commit_message = f"""Progress commit for experimental session: {session_name}
+                commit_message = f"""Progress commit for experimental session: {branch_name}
 
 Updated at: {timestamp}
-Branch: {self.session_branch.val}
 
 Generated with ScopeFoundry Git Session Manager"""
 
@@ -673,7 +667,7 @@ Generated with ScopeFoundry Git Session Manager"""
             self.refresh_git_status()
             
             commit_type = "Final" if final else "Progress"
-            self.log.info(f"{commit_type} commit completed for session: {session_name}")
+            self.log.info(f"{commit_type} commit completed for session: {branch_name}")
             
         except subprocess.CalledProcessError as e:
             if "nothing to commit" in e.stderr:
