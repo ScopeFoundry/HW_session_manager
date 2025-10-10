@@ -182,9 +182,10 @@ class GitSessionManagerHW(HardwareComponent):
             self.current_commit_hash.update_value(stdout)
             
             # Check for uncommitted changes
-            stdout, stderr, returncode = self._run_git_command(
-                ['git', 'status', '--porcelain']
-            )
+            cmd = ['git', 'status', '--porcelain']
+            if not self.manage_submodules.val:
+                cmd.append('--ignore-submodules')
+            stdout, _, _ = self._run_git_command(cmd)
             has_changes = bool(stdout.strip())
             self.has_uncommitted_changes.update_value(has_changes)
             
@@ -238,13 +239,26 @@ class GitSessionManagerHW(HardwareComponent):
             # Generate branch name
             branch_name = self.generate_session_branch_name()
             
-            # Check if branch already exists
-            try:
-                self._run_git_command(['git', 'rev-parse', '--verify', branch_name], silent_fail=True)
-                raise ValueError(f"Branch {branch_name} already exists")
-            except subprocess.CalledProcessError:
-                # Branch doesn't exist, which is what we want
-                pass
+            # Check if branch already exists and increment if needed
+            original_branch_name = branch_name
+            counter = 1
+            while True:
+                _, _, returncode = self._run_git_command(
+                    ['git', 'show-ref', '--verify', '--quiet', f'refs/heads/{branch_name}'],
+                    check=False
+                )
+                if returncode == 0:
+                    # Branch exists, try next number
+                    branch_name = f"{original_branch_name}-{counter}"
+                    counter += 1
+                else:
+                    # Branch doesn't exist, use this name
+                    break
+            
+            # Update session_name if branch name was modified
+            if branch_name != original_branch_name:
+                session_name_from_branch = branch_name.replace(f"{self.session_prefix.val}-", "", 1)
+                self.session_name.update_value(session_name_from_branch)
                 
             # Create and switch to new branch
             self._run_git_command(['git', 'checkout', '-b', branch_name])
@@ -355,21 +369,16 @@ Generated with ScopeFoundry Git Session Manager"""
                 # There are changes, add and commit them
                 self._run_git_command(['git', 'add', '-A'])
                 
-                # Check again if there are staged changes after add
-                stdout_after_add, _, _ = self._run_git_command(
+                # Check if there are actually staged changes after add
+                _, _, returncode = self._run_git_command(
                     ['git', 'diff', '--cached', '--quiet'],
                     check=False
                 )
                 
                 # git diff --cached --quiet returns 1 if there are staged changes, 0 if none
-                stdout_status, _, returncode_status = self._run_git_command(
-                    ['git', 'status', '--porcelain'],
-                    check=False
-                )
-                
-                if not stdout_status.strip():
-                    # Nothing was actually staged (e.g., all files ignored)
-                    self.log.info("No changes to commit after git add (files may be ignored)")
+                if returncode == 0:
+                    # Nothing was actually staged (e.g., all files ignored or submodule changes)
+                    self.log.info("No changes to commit after git add (files may be ignored or only submodule changes)")
                     return
                 
                 timestamp = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
@@ -537,9 +546,10 @@ Generated with ScopeFoundry Git Session Manager"""
                 
             parent_branch = self.parent_branch.val
             
-            # Check if there are uncommitted changes
-            if self.has_uncommitted_changes.val:
-                raise ValueError(f"There are uncommitted changes. Please commit or stash them before switching branches.")
+            # End the session if it's still active
+            if self.session_active.val:
+                self.log.info("Ending session before returning to parent branch")
+                self.end_experimental_session()
             
             # Return submodules to their original branches if enabled
             if self.manage_submodules.val:
