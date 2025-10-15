@@ -92,17 +92,17 @@ class GitSessionManagerHW(HardwareComponent):
             description="Whether there are uncommitted changes"
         )
         
-        self.session_ended = self.settings.New(
-            "session_ended",
-            dtype=bool,
-            initial=False,
-            ro=True,
-            description="Whether the current session has been explicitly ended"
-        )
+        # self.session_ended = self.settings.New(
+        #     "session_ended",
+        #     dtype=bool,
+        #     initial=False,
+        #     ro=True,
+        #     description="Whether the current session has been explicitly ended"
+        # )
         
         # Git operations
         self.add_operation("Start Session", self.start_experimental_session)
-        self.add_operation("End Session", self.end_experimental_session)
+        # self.add_operation("End Session", self.end_experimental_session)
         self.add_operation("Commit Changes", self.commit_session_changes)
         self.add_operation("Return to Parent Branch", self.return_to_parent_branch)
         self.add_operation("Refresh Status", self.refresh_git_status)
@@ -187,16 +187,14 @@ class GitSessionManagerHW(HardwareComponent):
             current_branch = self.current_branch.val
             is_session_branch = current_branch.startswith(f"{self.SESSION_PREFIX}-")
             
-            # Session is active only if on session branch AND not explicitly ended
-            session_active = is_session_branch and not self.session_ended.val
+            # Session is active if on a session branch
+            session_active = is_session_branch
             self.session_active.update_value(session_active)
             
             if is_session_branch:
                 self.session_branch.update_value(current_branch)
             else:
                 self.session_branch.update_value("")
-                # Reset session_ended flag when not on a session branch
-                self.session_ended.update_value(False)
                 
             self.log.info(f"Git status refreshed - Branch: {current_branch}, Changes: {has_changes}")
             
@@ -227,8 +225,9 @@ class GitSessionManagerHW(HardwareComponent):
     def start_experimental_session(self):
         """Start a new experimental session by creating and switching to a new git branch"""
         try:
+            # If a session is already active, just record the current session branch as parent
             if self.session_active.val:
-                raise ValueError("A session is already active. End the current session first.")
+                self.log.info("A session is already active. Starting new session from current session branch.")
                 
             # Record the current branch as the parent branch
             parent_branch = self.current_branch.val
@@ -261,8 +260,8 @@ class GitSessionManagerHW(HardwareComponent):
             # Create and switch to new branch
             self._run_git_command(['git', 'checkout', '-b', branch_name])
             
-            # Reset session_ended flag for new session
-            self.session_ended.update_value(False)
+            # Reset session_ended flag for new session (kept for backward compatibility)
+            # self.session_ended.update_value(False)
             
             # Handle submodules if enabled
             if self.manage_submodules.val:
@@ -401,25 +400,18 @@ Generated with ScopeFoundry Git Session Manager"""
                 self.log.error(f"Failed to commit initial session state: {e}")
                 raise
                 
-    def create_session_tag(self, branch_name):
-        """Create a git tag to mark the session start"""
+    def create_session_tag(self, branch_name, tag_type="start"):
+        """Create a git tag to mark the session start or end"""
         try:
-            timestamp = datetime.datetime.now().strftime("%Y%m%d-%H%M%S")
-            session_name = self.session_name.val or "session"
-            
-            # Clean session name for tag (similar to branch name cleaning)
-            clean_name = session_name.replace(" ", "-").replace("_", "-")
-            clean_name = "".join(c for c in clean_name if c.isalnum() or c in "-.")
-            
-            tag_name = f"session-start-{clean_name}-{timestamp}"
+            tag_name = f"{tag_type}-{branch_name}"
             
             # Create tag message
-            tag_message = f"""Session start tag for: {session_name}
+            timestamp = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+            tag_message = f"""Session {tag_type} tag for: {branch_name}
 
 Tag Details:
-- Session name: {session_name}
 - Branch: {branch_name}
-- Created: {datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")}
+- Created: {timestamp}
 - ScopeFoundry Git Session Manager
 
 Generated with ScopeFoundry Git Session Manager"""
@@ -444,9 +436,12 @@ Generated with ScopeFoundry Git Session Manager"""
             # Commit any final changes
             if self.has_uncommitted_changes.val:
                 self.commit_session_changes(final=True)
+            
+            # Create end tag
+            # self.create_session_tag(current_session_branch, tag_type="end")
                 
             # Mark session as ended (but stay on the session branch)
-            self.session_ended.update_value(True)
+            # self.session_ended.update_value(True)
             
             # Update status (session will be marked inactive due to session_ended flag)
             self.refresh_git_status()
