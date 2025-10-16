@@ -161,7 +161,7 @@ Response: {response_preview}"""
             for filepath, size, sha_hash in large_files:
                 subprocess.run(["git", "reset", "HEAD", filepath], cwd=repo_path)
             
-            commit_msg += """\nPrevented commit of {len(large_files)} large file(s) (>{MAX_FILE_SIZE/(1024*1024):.0f}MB):\n"""            
+            commit_msg += f"""\nPrevented commit of {len(large_files)} large file(s) (>{MAX_FILE_SIZE/(1024*1024):.0f}MB):\n"""            
             for filepath, size, sha_hash in large_files:
                 size_mb = size / (1024 * 1024)
                 commit_msg += f"  - {filepath} ({size_mb:.2f} MB) SHA256: {sha_hash}\n"
