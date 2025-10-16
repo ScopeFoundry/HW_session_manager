@@ -158,7 +158,7 @@ Response: {response_preview}"""
         
         if large_files:
             # Unstage large files
-            for filepath, size in large_files:
+            for filepath, size, sha_hash in large_files:
                 subprocess.run(["git", "reset", "HEAD", filepath], cwd=repo_path)
             
             commit_msg += """\nPrevented commit of {len(large_files)} large file(s) (>{MAX_FILE_SIZE/(1024*1024):.0f}MB):\n"""            
