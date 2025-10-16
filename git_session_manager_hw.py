@@ -111,6 +111,11 @@ class GitSessionManagerHW(HardwareComponent):
         """Connect to git and initialize status"""
         self.refresh_git_status()
         
+        for measure_name, measure in self.app.measurements.items():
+            measure.activation.add_listener(
+                lambda m=measure: self.on_measurement_activation_changed(m)
+            )
+        
     def disconnect(self):
         """Disconnect from git session manager"""
         # TODO should the session end on disconnect?
@@ -625,4 +630,64 @@ Generated with ScopeFoundry Git Session Manager"""
                 raise
         except Exception as e:
             self.log.error(f"Failed to commit session changes: {e}")
+            raise
+    
+    def on_measurement_activation_changed(self, measurement):
+        """Called when a measurement's activation status changes"""
+        if measurement.activation.val:
+            if not self.session_active.val:
+                self.log.warning(f"Measurement {measurement.name} starting without an active session")
+            self.commit_for_measurement_start(measurement)
+    
+    def commit_for_measurement_start(self, measurement):
+        """Create a commit before starting a measurement (before h5 file is created)"""
+        try:
+            measurement_name = measurement.name
+            
+            if self.manage_submodules.val:
+                self.commit_submodule_changes()
+            
+            self._run_git_command(['git', 'add', '-A'])
+            
+            _, _, returncode = self._run_git_command(
+                ['git', 'diff', '--cached', '--quiet'],
+                check=False
+            )
+            
+            if returncode == 0:
+                self.log.info(f"No changes to commit for measurement: {measurement_name}")
+                self.refresh_git_status()
+                return self.current_commit_hash.val
+            
+            timestamp = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+            session_info = self.session_branch.val if self.session_active.val else 'no active session'
+            
+            commit_message = f"""Starting measurement: {measurement_name}
+
+Measurement Details:
+- Name: {measurement_name}
+- Started: {timestamp}
+- Session: {session_info}
+
+Generated with ScopeFoundry Git Session Manager"""
+            
+            self._run_git_command(['git', 'commit', '-F', '-'], input_text=commit_message)
+            
+            self.refresh_git_status()
+            
+            self.log.info(f"Created pre-measurement commit for: {measurement_name}")
+            self.log.info(f"Git hash: {self.current_commit_hash.val}")
+            
+            return self.current_commit_hash.val
+            
+        except subprocess.CalledProcessError as e:
+            if "nothing to commit" in e.stderr:
+                self.log.info("No changes to commit for measurement")
+                self.refresh_git_status()
+                return self.current_commit_hash.val
+            else:
+                self.log.error(f"Failed to create measurement commit: {e}")
+                raise
+        except Exception as e:
+            self.log.error(f"Failed to create measurement commit: {e}")
             raise
