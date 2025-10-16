@@ -455,74 +455,30 @@ Generated with ScopeFoundry Git Session Manager"""
     def commit_submodule_changes(self, final=False):
         """Commit changes in all submodules"""
         try:
-            submodules = self.get_submodules()
-            
-            if not submodules:
-                return
-            
             timestamp = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-            session_name = self.session_name.val or "experimental session"
+            branch_name = self.session_branch.val
             
-            for submodule_path in submodules:
-                try:
-                    submodule_full_path = Path(self.repo_path.val) / submodule_path
-                    
-                    # Check for changes in submodule
-                    result = subprocess.run(
-                        ['git', 'status', '--porcelain'],
-                        cwd=submodule_full_path,
-                        capture_output=True,
-                        text=True,
-                        check=True
-                    )
-                    
-                    if not result.stdout.strip():
-                        continue
-                    
-                    self.log.info(f"Committing changes in submodule: {submodule_path}")
-                    
-                    # Add all changes in submodule
-                    subprocess.run(
-                        ['git', 'add', '-A'],
-                        cwd=submodule_full_path,
-                        capture_output=True,
-                        text=True,
-                        check=True
-                    )
-                    
-                    # Create commit message for submodule
-                    if final:
-                        commit_message = f"""Final commit for experimental session: {session_name}
+            # Create commit message
+            if final:
+                commit_message = f"""Final commit for experimental session: {branch_name}
 
 Session completed at: {timestamp}
 
 Generated with ScopeFoundry Git Session Manager"""
-                    else:
-                        commit_message = f"""Progress commit for experimental session: {session_name}
+            else:
+                commit_message = f"""Progress commit for experimental session: {branch_name}
 
 Updated at: {timestamp}
 
 Generated with ScopeFoundry Git Session Manager"""
-                    
-                    # Commit in submodule
-                    subprocess.run(
-                        ['git', 'commit', '-F', '-'],
-                        cwd=submodule_full_path,
-                        capture_output=True,
-                        text=True,
-                        input=commit_message,
-                        check=True
-                    )
-                    
-                    self.log.info(f"Committed changes in submodule {submodule_path}")
-                    
-                except subprocess.CalledProcessError as e:
-                    if "nothing to commit" in e.stderr:
-                        self.log.info(f"No changes to commit in submodule {submodule_path}")
-                    else:
-                        self.log.warning(f"Failed to commit in submodule {submodule_path}: {e.stderr}")
-                except Exception as e:
-                    self.log.warning(f"Failed to process submodule {submodule_path}: {e}")
+            
+            # Add all changes in all submodules
+            self._run_git_command(['git', 'submodule', 'foreach', 'git add -A'])
+            
+            # Commit in all submodules
+            self._run_git_command(['git', 'submodule', 'foreach', 'git', 'commit', '-F', '-'], input_text=commit_message, check=False)
+            
+            self.log.info("Committed changes in submodules")
                     
         except Exception as e:
             self.log.error(f"Failed to commit submodule changes: {e}")
