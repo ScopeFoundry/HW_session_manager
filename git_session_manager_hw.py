@@ -354,7 +354,7 @@ class GitSessionManagerHW(HardwareComponent):
                 # No changes to commit, create an empty commit to mark session start
                 timestamp = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
                 
-                commit_message = f"""Start experimental session: {branch_name}
+                commit_message = f"""Start: {branch_name}
 
 Session Details:
 - Branch: {branch_name}
@@ -383,7 +383,7 @@ Generated with ScopeFoundry Git Session Manager"""
                 
                 timestamp = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
                 
-                commit_message = f"""Initial state for experimental session: {branch_name}
+                commit_message = f"""Initial state for: {branch_name}
 
 Session Details:
 - Branch: {branch_name}
@@ -465,13 +465,13 @@ Generated with ScopeFoundry Git Session Manager"""
             
             # Create commit message
             if final:
-                commit_message = f"""Final commit for experimental session: {branch_name}
+                commit_message = f"""Final commit: {branch_name}
 
 Session completed at: {timestamp}
 
 Generated with ScopeFoundry Git Session Manager"""
             else:
-                commit_message = f"""Progress commit for experimental session: {branch_name}
+                commit_message = f"""Progress: {branch_name}
 
 Updated at: {timestamp}
 
@@ -603,13 +603,13 @@ Generated with ScopeFoundry Git Session Manager"""
             branch_name = self.session_branch.val
             
             if final:
-                commit_message = f"""Final commit for experimental session: {branch_name}
+                commit_message = f"""Final commit: {branch_name}
 
 Session completed at: {timestamp}
 
 Generated with ScopeFoundry Git Session Manager"""
             else:
-                commit_message = f"""Progress commit for experimental session: {branch_name}
+                commit_message = f"""Progress commit: {branch_name}
 
 Updated at: {timestamp}
 
