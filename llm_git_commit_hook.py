@@ -248,8 +248,9 @@ def main():
             # write prompt to to file
             write_to_conversation_file(prompt, response, filename= session_dir / f"conversation-{branch}.md")
         finally:
-            # Create the commit
-            create_commit(prompt, response)
+            # Create the commit, if in session
+            if branch.startswith("session-"):
+                create_commit(prompt, response)
         
     except json.JSONDecodeError as e:
         print(f"Error: Invalid JSON input: {e}", file=sys.stderr)
