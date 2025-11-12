@@ -23,12 +23,33 @@ def extract_message_content(message):
             content = message['content']
             if isinstance(content, str):
                 return content
-            elif isinstance(content, list):
+            #elif isinstance(content, list):
+            else:
+                print(f"{type(content)=}")
                 # Extract text from content blocks
                 texts = []
                 for block in content:
+                    #print('\t', repr(block))
+                    #print(f"{block.keys()=}")
                     if isinstance(block, dict) and block.get('type') == 'text':
                         texts.append(block.get('text', ''))
+                    elif isinstance(block, dict) and block.get('type') == 'tool_use':
+                        texts.append("```\n" + str(block) + "\n```")
+                    elif isinstance(block, dict) and block.get('type') == 'tool_result':
+                        texts.append("```\n" + str(block) + "\n```")
+
+                        # if isinstance(block, str):
+                        #     texts.append(block)
+                        # else:
+                        #     for subblock in block.get('content',[]):
+                        #         if isinstance(subblock, str):
+                        #             texts.append(subblock)
+                        #         else:
+                        #             #print(subblock)
+                        #             x = subblock.get('text','')
+                        #             print('tool_result', x)
+                        #             texts.append(x)
+                    #print(f"{texts=}")
                 return '\n'.join(texts)
         elif 'role' in message and 'content' in message:
             return message.get('content', '')
@@ -48,7 +69,7 @@ def is_noise_message(entry):
     
     # Filter command outputs (optional - set to False to include them)
     if msg_type == 'user' and 'local-command-stdout' in extract_message_content(entry.get('message', {})):
-        return True
+        return False
     
     return False
 
@@ -57,7 +78,13 @@ def format_message(entry):
     msg_type = entry.get('type', 'unknown')
     timestamp = parse_timestamp(entry.get('timestamp', ''))
     message = entry.get('message', {})
+    uid = entry.get('uuid')
     
+    if entry.get('type')=='user' and  isinstance(message.get('content'),str):
+        is_actually_user = True
+    else:
+        is_actually_user = False
+
     # Extract content
     content = extract_message_content(message)
     content = clean_ansi_codes(content)
@@ -67,21 +94,25 @@ def format_message(entry):
         return None
     
     # Format based on type
-    if msg_type == 'user':
-        role = message.get('role', 'user')
-        return f"### 👤 User - {timestamp}\n\n{content}\n"
-    
+    #if msg_type == 'user':
+    #    role = message.get('role', 'user')
+    if is_actually_user:
+        return f"### 👤 User - {timestamp} [{uid}]\n\n{content}\n"
+    elif msg_type == 'user': #not actually user, often tool use
+        return f"### 🤖 Tool Use {timestamp} [{uid}]\n\n{content}"
     elif msg_type == 'assistant':
         model = message.get('model', 'unknown')
         usage = message.get('usage', {})
         tokens = usage.get('output_tokens', 'N/A')
         
-        header = f"### 🤖 Assistant ({model}) - {timestamp}"
+        header = f"### 🤖 Assistant ({model}) - {timestamp} [{uid}]"
         if tokens != 'N/A':
             header += f" · {tokens} tokens"
         
         return f"{header}\n\n{content}\n"
-    
+    else:
+        return f"### {timestamp} [{uid}]\n\n{message}"   
+        
     return None
 
 def convert_jsonl_to_markdown(jsonl_path, output_path=None, include_metadata=True):
