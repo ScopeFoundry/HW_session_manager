@@ -9,7 +9,7 @@ import os
 import traceback
 import shutil
 import re
-from  . import convert_chat_logs
+from . import convert_chat_logs
 
 
 # Setup logging to file
@@ -518,8 +518,8 @@ def main():
 
 
         # Write to conversation file (new version)
-        from convert_chat_logs import convert_jsonl_to_markdown
-        convert_jsonl_to_markdown(transcript_path,session_dir / f"conversation-{branch_clean}-{claude_session_id}.md" )
+       # from convert_chat_logs import convert_jsonl_to_markdown
+        convert_chat_logs.convert_jsonl_to_markdown(transcript_path,session_dir / f"conversation-{branch_clean}-{claude_session_id}.md" )
 
         # # Write to conversation file
         # debug_log("main: Writing to conversation file")
