@@ -62,15 +62,19 @@ def is_noise_message(entry):
     # Filter out these types
     if msg_type in ['file-history-snapshot', 'system', 'progress']:
         return True
-    
+
     # Filter meta messages
     if entry.get('isMeta', False):
         return True
-    
-    # Filter command outputs (optional - set to False to include them)
-    if msg_type == 'user' and 'local-command-stdout' in extract_message_content(entry.get('message', {})):
-        return False
-    
+
+    # Filter tool results (type='user' but content is list, not string)
+    if msg_type == 'user':
+        message = entry.get('message', {})
+        content = message.get('content')
+        # Real user messages have string content, tool results have list content
+        if not isinstance(content, str):
+            return True
+
     return False
 
 def format_message(entry):
