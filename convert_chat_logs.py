@@ -58,9 +58,9 @@ def extract_message_content(message):
 def is_noise_message(entry):
     """Check if message should be filtered out."""
     msg_type = entry.get('type', '')
-    
+
     # Filter out these types
-    if msg_type in ['file-history-snapshot', 'system']:
+    if msg_type in ['file-history-snapshot', 'system', 'progress']:
         return True
     
     # Filter meta messages
