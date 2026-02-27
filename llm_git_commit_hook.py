@@ -517,9 +517,10 @@ def main():
             sys.exit(0)
 
 
-        # Write to conversation file (new version)
-       # from convert_chat_logs import convert_jsonl_to_markdown
-        convert_chat_logs.convert_jsonl_to_markdown(transcript_path,session_dir / f"conversation-{branch_clean}-{claude_session_id}.md" )
+        # Write to conversation files (full with tool use, and messages-only)
+        conv_base = f"conversation-{branch_clean}-{claude_session_id}"
+        convert_chat_logs.convert_jsonl_to_markdown(transcript_path, session_dir / f"{conv_base}_full.md", messages_only=False)
+        convert_chat_logs.convert_jsonl_to_markdown(transcript_path, session_dir / f"{conv_base}_messages.md", messages_only=True)
 
         # # Write to conversation file
         # debug_log("main: Writing to conversation file")

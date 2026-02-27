@@ -16,7 +16,7 @@ def clean_ansi_codes(text):
     ansi_escape = re.compile(r'\x1B(?:[@-Z\\-_]|\[[0-?]*[ -/]*[@-~])')
     return ansi_escape.sub('', text)
 
-def extract_message_content(message):
+def extract_message_content(message, include_tool_use=True):
     """Extract text content from message object."""
     if isinstance(message, dict):
         if 'content' in message:
@@ -33,29 +33,30 @@ def extract_message_content(message):
                     #print(f"{block.keys()=}")
                     if isinstance(block, dict) and block.get('type') == 'text':
                         texts.append(block.get('text', ''))
-                    elif isinstance(block, dict) and block.get('type') == 'tool_use':
+                    elif include_tool_use and isinstance(block, dict) and block.get('type') == 'tool_use':
                         texts.append("```\n" + str(block) + "\n```")
-                    elif isinstance(block, dict) and block.get('type') == 'tool_result':
+                    elif include_tool_use and isinstance(block, dict) and block.get('type') == 'tool_result':
                         texts.append("```\n" + str(block) + "\n```")
-
-                        # if isinstance(block, str):
-                        #     texts.append(block)
-                        # else:
-                        #     for subblock in block.get('content',[]):
-                        #         if isinstance(subblock, str):
-                        #             texts.append(subblock)
-                        #         else:
-                        #             #print(subblock)
-                        #             x = subblock.get('text','')
-                        #             print('tool_result', x)
-                        #             texts.append(x)
                     #print(f"{texts=}")
                 return '\n'.join(texts)
         elif 'role' in message and 'content' in message:
             return message.get('content', '')
     return str(message)
 
-def is_noise_message(entry):
+def is_tool_only_message(entry):
+    """Check if an assistant message contains only tool_use blocks with no text."""
+    if entry.get('type') != 'assistant':
+        return False
+    content = entry.get('message', {}).get('content')
+    if not isinstance(content, list):
+        return False
+    has_text = any(
+        isinstance(block, dict) and block.get('type') == 'text' and block.get('text', '').strip()
+        for block in content
+    )
+    return not has_text
+
+def is_noise_message(entry, messages_only=False):
     """Check if message should be filtered out."""
     msg_type = entry.get('type', '')
 
@@ -75,22 +76,26 @@ def is_noise_message(entry):
         if not isinstance(content, str):
             return True
 
+    # In messages-only mode, filter assistant messages that have only tool_use blocks
+    if messages_only and is_tool_only_message(entry):
+        return True
+
     return False
 
-def format_message(entry):
+def format_message(entry, messages_only=False):
     """Format a single message entry as markdown."""
     msg_type = entry.get('type', 'unknown')
     timestamp = parse_timestamp(entry.get('timestamp', ''))
     message = entry.get('message', {})
     uid = entry.get('uuid')
-    
+
     if entry.get('type')=='user' and  isinstance(message.get('content'),str):
         is_actually_user = True
     else:
         is_actually_user = False
 
     # Extract content
-    content = extract_message_content(message)
+    content = extract_message_content(message, include_tool_use=not messages_only)
     content = clean_ansi_codes(content)
     
     # Skip empty messages
@@ -119,17 +124,22 @@ def format_message(entry):
         
     return None
 
-def convert_jsonl_to_markdown(jsonl_path, output_path=None, include_metadata=True):
-    """Convert JSONL chat log to markdown."""
+def convert_jsonl_to_markdown(jsonl_path, output_path=None, include_metadata=True, messages_only=False):
+    """Convert JSONL chat log to markdown.
+
+    messages_only: if True, filters out tool-use-only assistant messages and strips
+                   tool_use/tool_result blocks from mixed messages.
+    """
     jsonl_path = Path(jsonl_path)
-    
+
     if output_path is None:
-        output_path = jsonl_path.with_suffix('.md')
+        suffix = '_messages.md' if messages_only else '_full.md'
+        output_path = jsonl_path.with_suffix('').with_name(jsonl_path.stem + suffix)
     else:
         output_path = Path(output_path)
-    
+
     print(f"Reading {jsonl_path.name}...")
-    
+
     # Read and parse JSON lines
     messages = []
     with open(jsonl_path, 'r', encoding='utf-8') as f:
@@ -137,75 +147,82 @@ def convert_jsonl_to_markdown(jsonl_path, output_path=None, include_metadata=Tru
             line = line.strip()
             if not line:
                 continue
-            
+
             try:
                 entry = json.loads(line)
-                if not is_noise_message(entry):
+                if not is_noise_message(entry, messages_only=messages_only):
                     messages.append(entry)
             except json.JSONDecodeError as e:
                 print(f"Warning: Could not parse line {line_num}: {e}")
                 continue
-    
+
     print(f"Found {len(messages)} messages")
-    
+
     # Sort by timestamp
     messages.sort(key=lambda x: x.get('timestamp', ''))
-    
+
     # Generate markdown
     md_lines = []
-    
+
     # Add header
     md_lines.append(f"# Chat Log: {jsonl_path.stem}\n")
     md_lines.append(f"**Converted**: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}\n")
-    
+
     # Extract session metadata if available
     if messages and include_metadata:
         first_msg = messages[0]
         session_id = first_msg.get('sessionId', 'Unknown')
         git_branch = first_msg.get('gitBranch', 'Unknown')
-        
+
         md_lines.append("## Session Information\n")
         md_lines.append(f"- **Session ID**: `{session_id}`")
         md_lines.append(f"- **Git Branch**: `{git_branch}`")
         md_lines.append(f"- **Total Messages**: {len(messages)}\n")
-    
+
     md_lines.append("---\n")
     md_lines.append("## Conversation\n")
-    
+
     # Add messages
     for entry in messages:
-        formatted = format_message(entry)
+        formatted = format_message(entry, messages_only=messages_only)
         if formatted:
             md_lines.append(formatted)
             md_lines.append("---\n")
-    
+
     # Write to file
     output_text = '\n'.join(md_lines)
     output_path.write_text(output_text, encoding='utf-8')
-    
+
     print(f"Saved markdown to {output_path}")
     return output_path
 
+
+def convert_jsonl_to_both(jsonl_path, output_dir=None):
+    """Convert a JSONL chat log to both a full (with tool use) and messages-only markdown."""
+    jsonl_path = Path(jsonl_path)
+    stem = jsonl_path.stem
+    base_dir = Path(output_dir) if output_dir else jsonl_path.parent
+
+    full_path = base_dir / f"{stem}_full.md"
+    messages_path = base_dir / f"{stem}_messages.md"
+
+    convert_jsonl_to_markdown(jsonl_path, output_path=full_path, messages_only=False)
+    convert_jsonl_to_markdown(jsonl_path, output_path=messages_path, messages_only=True)
+
 def convert_folder(folder_path, output_dir=None):
-    """Convert all JSONL files in a folder to markdown."""
+    """Convert all JSONL files in a folder to markdown (both full and messages-only)."""
     folder_path = Path(folder_path)
-    
+
     jsonl_files = list(folder_path.glob('*.jsonl'))
     if not jsonl_files:
         print(f"No .jsonl files found in {folder_path}")
         return
-    
+
     print(f"Found {len(jsonl_files)} JSONL file(s)\n")
-    
+
     for jsonl_file in jsonl_files:
         print(f"Processing {jsonl_file.name}...")
-        
-        if output_dir:
-            output_path = Path(output_dir) / jsonl_file.with_suffix('.md').name
-        else:
-            output_path = jsonl_file.with_suffix('.md')
-        
-        convert_jsonl_to_markdown(jsonl_file, output_path)
+        convert_jsonl_to_both(jsonl_file, output_dir=output_dir)
         print()
 
 def create_summary(folder_path, output_path=None, output_dir=None):
@@ -277,7 +294,7 @@ if __name__ == "__main__":
     
     if len(sys.argv) < 2:
         print("Usage:")
-        print("  python convert_chat_logs.py <file.jsonl>             # Convert single file")
+        print("  python convert_chat_logs.py <file.jsonl>             # Convert single file (produces _full.md and _messages.md)")
         print("  python convert_chat_logs.py <folder>                 # Convert all .jsonl in folder")
         print("  python convert_chat_logs.py <folder> --summary       # Create summary only")
         print("  python convert_chat_logs.py <path> --output <dir>    # Specify output directory")
@@ -294,7 +311,7 @@ if __name__ == "__main__":
             output_dir = sys.argv[idx + 1]
     
     if input_path.is_file():
-        convert_jsonl_to_markdown(input_path, output_dir)
+        convert_jsonl_to_both(input_path, output_dir=output_dir)
     elif input_path.is_dir():
         if create_summary_flag:
             create_summary(input_path, output_dir=output_dir)
