@@ -31,7 +31,7 @@ def debug_log(msg):
     """Log debug messages."""
     print(f"[DEBUG] {msg}", file=sys.stderr)
     with open(LOG_FILE, 'a') as f:
-        f.write("[DEBUG] {msg}\n")
+        f.write(f"[DEBUG] {msg}\n")
     sys.stderr.flush()
 
 def clean_ansi_codes(text):
@@ -201,9 +201,14 @@ def get_new_prompt_and_response(transcript_path, t_start):
         for new conversation since last git commit on datetime timestamp t_start
         """
     entries = []
-    with open(transcript_path, 'rb') as f:
+    with open(transcript_path, 'r', encoding='utf-8', errors='replace') as f:
         for line in f:
-            j = json.loads(line)
+            if not line.strip():
+                continue
+            try:
+                j = json.loads(line)
+            except json.JSONDecodeError:
+                continue
             timestamp_str = j.get('timestamp')
             if timestamp_str:
                 t= datetime.fromisoformat(timestamp_str.replace("Z", "+00:00"))
