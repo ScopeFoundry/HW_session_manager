@@ -218,12 +218,19 @@ def get_new_prompt_and_response(transcript_path, t_start):
             if t and t > t_start:
                 entries.append(j)
 
+    prompt = None
+    response = None
+
     for entry in entries:
         if convert_chat_logs.is_noise_message(entry):
             continue
 
-        # first one we find is the "prompt"
+        # Skip 'attachment' entries (task_reminder, hook_success, skill_listing, etc.) —
+        # they have timestamps but no 'message' key, causing extract to return "{}".
         message = entry.get('message', {})
+        if message.get('role') != 'user':
+            continue
+
         # Extract content
         content = convert_chat_logs.extract_message_content(message)
         content = convert_chat_logs.clean_ansi_codes(content)
@@ -239,8 +246,11 @@ def get_new_prompt_and_response(transcript_path, t_start):
         if convert_chat_logs.is_noise_message(entry):
             continue
 
-        # last one we find is the "response" (note the [::-1] above)
+        # Same: skip attachment entries on the response side
         message = entry.get('message', {})
+        if message.get('role') != 'assistant':
+            continue
+
         # Extract content
         content = convert_chat_logs.extract_message_content(message)
         content = convert_chat_logs.clean_ansi_codes(content)
@@ -251,6 +261,10 @@ def get_new_prompt_and_response(transcript_path, t_start):
 
         response = content
         break
+
+    if prompt is None or response is None:
+        debug_log(f"get_new_prompt_and_response: could not find prompt ({prompt is not None}) or response ({response is not None})")
+        return prompt, response
 
     debug_log(f"get_new_prompt_and_response: SUCCESS - prompt={len(prompt)} chars, response={len(response)} chars")
     return prompt, response
